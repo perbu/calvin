@@ -44,3 +44,8 @@ Create a `~/.calvin/config.json` file with the following content:
 ```
 
 The `default_domain` is the domain that will be used when no domain is provided on the command line.
+
+## Todo
+
+- No tests. Yolo.
+- Configure stuff. 
