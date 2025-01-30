@@ -25,9 +25,6 @@ const (
 	tokenFileName = "token.json"
 )
 
-//go:embed credentials.json
-var googleCredentials []byte
-
 type Config struct {
 	DefaultDomain string `json:"default_domain"`
 }
@@ -61,6 +58,19 @@ func getConfig() (Config, error) {
 	return config, nil
 }
 
+func getCredentials() ([]byte, error) {
+	configDir, err := getConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	credentialsPath := filepath.Join(configDir, "credentials.json")
+	bytes, err := os.ReadFile(credentialsPath)
+	if err != nil {
+		return nil, fmt.Errorf("os.ReadFile(%s): %w", credentialsPath, err)
+	}
+	return bytes, nil
+}
+
 // newCalendarService handles OAuth2 flow, returning an authorized calendar.Service.
 func newCalendarService() (*calendar.Service, error) {
 	configDir, err := getConfigPath()
@@ -71,9 +81,12 @@ func newCalendarService() (*calendar.Service, error) {
 		return nil, fmt.Errorf("unable to create config directory: %w", err)
 	}
 	tokenPath := filepath.Join(configDir, tokenFileName)
-
+	credBytes, err := getCredentials()
+	if err != nil {
+		return nil, err
+	}
 	// If modifying scopes, delete your previously saved token.json.
-	conf, err := google.ConfigFromJSON(googleCredentials, calendar.CalendarReadonlyScope)
+	conf, err := google.ConfigFromJSON(credBytes, calendar.CalendarReadonlyScope)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse client secret file to config: %w", err)
 	}
