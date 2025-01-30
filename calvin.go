@@ -19,6 +19,9 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/option"
+
+	// Added color package
+	"github.com/fatih/color"
 )
 
 const (
@@ -248,14 +251,20 @@ func extractTimeFromISO(isoDateTime string) string {
 }
 
 // listEvents queries the Calendar API for all events on `theDate`.
-func listEvents(service *calendar.Service, calID string, theDate time.Time) error {
+func listEvents(service *calendar.Service, calID string, theDate time.Time, homeDomain string) error {
 	// Start and end of day in local time
 	startOfDay := time.Date(theDate.Year(), theDate.Month(), theDate.Day(), 0, 0, 0, 0, time.Local)
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
+	// Set up some color helpers
+	headerColor := color.New(color.FgCyan, color.Bold).SprintFunc()
+	highlight := color.New(color.FgGreen).SprintFunc()
+	subtle := color.New(color.FgHiBlack).SprintFunc()
+	warnColor := color.New(color.FgRed, color.Bold).SprintFunc()
+
 	fmt.Printf("Listing events for %s (%s) ...\n",
-		theDate.Format("2006-01-02"),
-		calID,
+		headerColor(theDate.Format("2006-01-02")),
+		headerColor(calID),
 	)
 
 	events, err := service.Events.List(calID).
@@ -270,25 +279,54 @@ func listEvents(service *calendar.Service, calID string, theDate time.Time) erro
 	}
 
 	if len(events.Items) == 0 {
-		fmt.Println("No events found.")
+		// Print 'no events' in a red/bold style for emphasis
+		fmt.Println(warnColor("No events found."))
 		return nil
 	}
 
+	// Print each event in a color-coded line
 	for _, item := range events.Items {
 		var timeInfo string
 		switch {
 		case item.Start != nil && item.Start.Date != "":
 			// all-day event
-			timeInfo = "(all day)"
+			timeInfo = highlight("(all day)")
 		case item.Start != nil && item.Start.DateTime != "":
 			timeInfo = fmt.Sprintf("(%s --> %s)",
-				extractTimeFromISO(item.Start.DateTime),
-				extractTimeFromISO(item.End.DateTime),
+				highlight(extractTimeFromISO(item.Start.DateTime)),
+				highlight(extractTimeFromISO(item.End.DateTime)),
 			)
 		}
-		fmt.Printf(" - %s %s\n", item.Summary, timeInfo)
+
+		// item.Summary in bold or another color
+		summaryColor := color.New(color.FgYellow, color.Bold).SprintFunc()
+
+		fmt.Printf(" - %s %s %s\n",
+			summaryColor(item.Summary),
+			timeInfo,
+			subtle("["+compactAttendees(item.Attendees, calID, homeDomain)+"]"),
+		)
 	}
 	return nil
+}
+
+func compactAttendees(attendees []*calendar.EventAttendee, self, homeDomain string) string {
+	if len(attendees) == 0 {
+		return ""
+	}
+	var who []string
+	for _, a := range attendees {
+		if a.Email == self {
+			continue
+		}
+		short := strings.TrimSuffix(a.Email, "@"+homeDomain)
+		who = append(who, short)
+		if len(who) >= 3 {
+			who = append(who, "...")
+			break
+		}
+	}
+	return strings.Join(who, ", ")
 }
 
 // run is the main application logic, but returns errors instead of exiting.
@@ -314,7 +352,7 @@ func run(args []string) error {
 	}
 
 	// List the events
-	if err := listEvents(svc, calendarID, theDate); err != nil {
+	if err := listEvents(svc, calendarID, theDate, config.DefaultDomain); err != nil {
 		return fmt.Errorf("error listing events: %w", err)
 	}
 
