@@ -17,7 +17,7 @@ $
 ## Installation
 
 ```
-$ go install github.com/perbu/calvin
+$ go install github.com/perbu/calvin@latest
 ```
 
 
