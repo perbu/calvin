@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"log"
 	"math/rand"
@@ -200,35 +199,32 @@ func randomString(n int) string {
 }
 
 func parseArgs(args []string) (string, time.Time, error) {
-	fs := flag.NewFlagSet("calvin", flag.ExitOnError)
-	dateFlag := fs.String("date", "", "Date in format YYYY-MM-DD or 'tomorrow'")
-	if err := fs.Parse(args); err != nil {
-		return "", time.Time{}, err
+	if len(args) == 0 {
+		return "", time.Time{}, errors.New("missing username")
 	}
-
-	// We expect exactly one non-flag argument: the username
-	rem := fs.Args()
-	if len(rem) != 1 {
-		return "", time.Time{},
-			fmt.Errorf("usage: %s <username> [--date=YYYY-MM-DD|tomorrow]", fs.Name())
+	if len(args) > 2 {
+		return "", time.Time{}, errors.New("too many arguments")
 	}
-	username := rem[0]
-
+	username := args[0]
 	// If no date is provided, default to today
 	theDate := time.Now().Truncate(24 * time.Hour)
+	// if a date is not given, we can return early
+	if len(args) == 1 {
+		return username, theDate, nil
+	}
 
 	// If --date=tomorrow is passed
-	switch *dateFlag {
+	switch args[1] {
 	case "":
 		// keep today's date
 	case "tomorrow":
 		theDate = theDate.Add(24 * time.Hour)
 	default:
-		parsed, err := time.Parse("2006-01-02", *dateFlag)
+		parsed, err := time.Parse("2006-01-02", args[1])
 		if err == nil {
 			theDate = parsed
 		} else {
-			log.Printf("Warning: could not parse date %q, using today", *dateFlag)
+			log.Printf("Warning: could not parse date %q, using today", args[1])
 		}
 	}
 	return username, theDate, nil

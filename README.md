@@ -6,6 +6,8 @@ bit slow for that. Calvin is a CLI tool that lets you quickly check someone's ca
 The default is to show the calendar for the current day. You can also specify a date, or "tomorrow", on the command
 line.
 
+## Usage
+Syntax: `calvin username [date]`
 ```
 $ calvin bob.smith      
 Listing events for 2025-01-30 (bob.smith@example.com) ...
@@ -14,6 +16,7 @@ Listing events for 2025-01-30 (bob.smith@example.com) ...
  - Company Update January  (17:00 --> 18:00)
 $
 ```
+
 ## Installation
 
 ```
