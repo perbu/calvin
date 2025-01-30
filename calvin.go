@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -20,6 +21,10 @@ import (
 	"google.golang.org/api/option"
 )
 
+const (
+	tokenFileName = "token.json"
+)
+
 //go:embed credentials.json
 var googleCredentials []byte
 
@@ -27,70 +32,82 @@ type Config struct {
 	DefaultDomain string `json:"default_domain"`
 }
 
-// getConfigPath returns the path to our CLI config directory (e.g., ~/.mycal).
-func getConfigPath() string {
+// getConfigPath returns the path to our CLI config directory (e.g., ~/.calvin).
+func getConfigPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatalf("Unable to find user home directory: %v", err)
+		return "", fmt.Errorf("unable to find user home directory: %w", err)
 	}
-	return filepath.Join(homeDir, ".calvin")
+	return filepath.Join(homeDir, ".calvin"), nil
 }
 
-// getConfig loads the configuration from ~/.mycal/config.json.
+// getConfig loads the configuration from ~/.calvin/config.json.
 func getConfig() (Config, error) {
-	var config Config
-
-	configDir := getConfigPath()
+	configDir, err := getConfigPath()
+	if err != nil {
+		return Config{}, err
+	}
 	configPath := filepath.Join(configDir, "config.json")
+
 	b, err := os.ReadFile(configPath)
 	if err != nil {
 		return Config{}, fmt.Errorf("os.ReadFile(%s): %w", configPath, err)
 	}
-	err = json.Unmarshal(b, &config)
-	if err != nil {
+
+	var config Config
+	if err := json.Unmarshal(b, &config); err != nil {
 		return Config{}, fmt.Errorf("json.Unmarshal: %w", err)
 	}
 	return config, nil
 }
 
-// getClient handles OAuth2 flow, returning an authorized calendar.Service.
-func getClient() *calendar.Service {
-	// The token will be saved/read at ~/.mycal/token.json
-	configDir := getConfigPath()
-	if err := os.MkdirAll(configDir, 0700); err != nil {
-		log.Fatalf("Unable to create config directory: %v", err)
+// newCalendarService handles OAuth2 flow, returning an authorized calendar.Service.
+func newCalendarService() (*calendar.Service, error) {
+	configDir, err := getConfigPath()
+	if err != nil {
+		return nil, err
 	}
-	tokenPath := filepath.Join(configDir, "token.json")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return nil, fmt.Errorf("unable to create config directory: %w", err)
+	}
+	tokenPath := filepath.Join(configDir, tokenFileName)
 
 	// If modifying scopes, delete your previously saved token.json.
 	conf, err := google.ConfigFromJSON(googleCredentials, calendar.CalendarReadonlyScope)
 	if err != nil {
-		log.Fatalf("Unable to parse client secret file to config: %v", err)
+		return nil, fmt.Errorf("unable to parse client secret file to config: %w", err)
 	}
 
 	tok, err := tokenFromFile(tokenPath)
 	if err != nil {
-		// If there's no valid token file, we do the web-based auth flow
-		tok = getTokenFromWeb(conf, tokenPath)
+		// If there's no valid token file, do the web-based auth flow
+		tok, err = getTokenFromWeb(conf, tokenPath)
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	client := conf.Client(context.Background(), tok)
 	srv, err := calendar.NewService(context.Background(), option.WithHTTPClient(client))
 	if err != nil {
-		log.Fatalf("Unable to retrieve Calendar client: %v", err)
+		return nil, fmt.Errorf("unable to retrieve Calendar client: %w", err)
 	}
-	return srv
+	return srv, nil
 }
 
-// tokenFromFile tries to read the OAuth2 token from local file.
+// tokenFromFile tries to read the OAuth2 token from a local file.
 func tokenFromFile(file string) (*oauth2.Token, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+
 	tok := &oauth2.Token{}
-	err = json.NewDecoder(f).Decode(tok)
-	return tok, err
+	if err := json.NewDecoder(f).Decode(tok); err != nil {
+		return nil, err
+	}
+	return tok, nil
 }
 
 // saveToken saves OAuth2 token to a local file.
@@ -100,22 +117,22 @@ func saveToken(path string, token *oauth2.Token) error {
 		return fmt.Errorf("os.Create: %w", err)
 	}
 	defer f.Close()
-	err = json.NewEncoder(f).Encode(token)
-	if err != nil {
+
+	if err := json.NewEncoder(f).Encode(token); err != nil {
 		return fmt.Errorf("json.NewEncoder.Encode: %w", err)
 	}
 	return nil
 }
 
 // getTokenFromWeb runs a small local webserver to get the OAuth2 code from Google.
-func getTokenFromWeb(conf *oauth2.Config, tokenPath string) *oauth2.Token {
+func getTokenFromWeb(conf *oauth2.Config, tokenPath string) (*oauth2.Token, error) {
 	state := randomString(16)
 	codeCh := make(chan string)
 	srv := &http.Server{Addr: ":8066"}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("state") != state {
-			_, _ = fmt.Fprintf(w, "Invalid state")
+			_, _ = fmt.Fprintln(w, "Invalid state")
 			return
 		}
 		code := r.URL.Query().Get("code")
@@ -124,8 +141,8 @@ func getTokenFromWeb(conf *oauth2.Config, tokenPath string) *oauth2.Token {
 	})
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("ListenAndServe(): %v", err)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			panic(fmt.Sprintf("ListenAndServe error: %v", err))
 		}
 	}()
 
@@ -145,17 +162,18 @@ func getTokenFromWeb(conf *oauth2.Config, tokenPath string) *oauth2.Token {
 	}
 
 	tok, err := conf.Exchange(context.TODO(), authCode,
-		oauth2.SetAuthURLParam("redirect_uri", "http://localhost:8066/"))
+		oauth2.SetAuthURLParam("redirect_uri", "http://localhost:8066/"),
+	)
 	if err != nil {
-		log.Fatalf("Unable to retrieve token from web: %v", err)
+		return nil, fmt.Errorf("unable to retrieve token from web: %w", err)
 	}
 	if err := saveToken(tokenPath, tok); err != nil {
-		log.Fatalf("Unable to save token: %v", err)
+		return nil, fmt.Errorf("unable to save token: %w", err)
 	}
-	return tok
+	return tok, nil
 }
 
-// randomString returns a random string of the specified length (for state).
+// randomString returns a random string of the specified length (for OAuth2 state).
 func randomString(n int) string {
 	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, n)
@@ -165,41 +183,38 @@ func randomString(n int) string {
 	return string(b)
 }
 
-// parseArgs parses command-line arguments to get the username and optional date.
-//
-// Usage examples:
-//
-//	mycal bob
-//	mycal bob --date=2025-03-15
-//	mycal bob --date=tomorrow
-func parseArgs() (string, time.Time, error) {
-	dateFlag := flag.String("date", "", "Date in format YYYY-MM-DD or 'tomorrow'")
-	flag.Parse()
+func parseArgs(args []string) (string, time.Time, error) {
+	fs := flag.NewFlagSet("calvin", flag.ExitOnError)
+	dateFlag := fs.String("date", "", "Date in format YYYY-MM-DD or 'tomorrow'")
+	if err := fs.Parse(args); err != nil {
+		return "", time.Time{}, err
+	}
 
 	// We expect exactly one non-flag argument: the username
-	args := flag.Args()
-	if len(args) != 1 {
-		return "", time.Time{}, fmt.Errorf("usage: %s <username> [--date=YYYY-MM-DD|tomorrow]", os.Args[0])
+	rem := fs.Args()
+	if len(rem) != 1 {
+		return "", time.Time{},
+			fmt.Errorf("usage: %s <username> [--date=YYYY-MM-DD|tomorrow]", fs.Name())
 	}
-	username := args[0]
+	username := rem[0]
 
 	// If no date is provided, default to today
 	theDate := time.Now().Truncate(24 * time.Hour)
 
 	// If --date=tomorrow is passed
-	if *dateFlag == "tomorrow" {
+	switch *dateFlag {
+	case "":
+		// keep today's date
+	case "tomorrow":
 		theDate = theDate.Add(24 * time.Hour)
-	} else if *dateFlag != "" {
-		// If an ISO string is passed, parse it
+	default:
 		parsed, err := time.Parse("2006-01-02", *dateFlag)
 		if err == nil {
 			theDate = parsed
 		} else {
-			// If we can't parse the provided date, fallback to today's date
 			log.Printf("Warning: could not parse date %q, using today", *dateFlag)
 		}
 	}
-
 	return username, theDate, nil
 }
 
@@ -209,6 +224,14 @@ func buildCalendarID(username, defaultDomain string) string {
 		return username
 	}
 	return fmt.Sprintf("%s@%s", username, defaultDomain)
+}
+
+func extractTimeFromISO(isoDateTime string) string {
+	t, err := time.Parse(time.RFC3339, isoDateTime)
+	if err != nil {
+		return "[error parsing time]"
+	}
+	return t.Format("15:04")
 }
 
 // listEvents queries the Calendar API for all events on `theDate`.
@@ -237,18 +260,17 @@ func listEvents(service *calendar.Service, calID string, theDate time.Time) erro
 		fmt.Println("No events found.")
 		return nil
 	}
-	// Print each event
+
 	for _, item := range events.Items {
 		var timeInfo string
 		switch {
-		// If it's an all-day event, `Date` field is set.
 		case item.Start != nil && item.Start.Date != "":
+			// all-day event
 			timeInfo = "(all day)"
-		// Otherwise, we can show the times in local or TZ
 		case item.Start != nil && item.Start.DateTime != "":
 			timeInfo = fmt.Sprintf("(%s --> %s)",
-				item.Start.DateTime,
-				item.End.DateTime,
+				extractTimeFromISO(item.Start.DateTime),
+				extractTimeFromISO(item.End.DateTime),
 			)
 		}
 		fmt.Printf(" - %s %s\n", item.Summary, timeInfo)
@@ -256,27 +278,39 @@ func listEvents(service *calendar.Service, calID string, theDate time.Time) erro
 	return nil
 }
 
-func main() {
-	username, theDate, err := parseArgs()
+// run is the main application logic, but returns errors instead of exiting.
+func run(args []string) error {
+	username, theDate, err := parseArgs(args)
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
 
 	// Load configuration to get a default domain
 	config, err := getConfig()
 	if err != nil {
-		log.Fatalf("unable to load config file: %v", err)
+		return fmt.Errorf("unable to load config file: %w", err)
 	}
 
 	// Build the full calendar ID (email address)
 	calendarID := buildCalendarID(username, config.DefaultDomain)
 
-	// Get an authenticated client
-	svc := getClient()
+	// Get an authenticated calendar client
+	svc, err := newCalendarService()
+	if err != nil {
+		return err
+	}
 
 	// List the events
-	err = listEvents(svc, calendarID, theDate)
-	if err != nil {
-		log.Fatalln("Error listing events:", err)
+	if err := listEvents(svc, calendarID, theDate); err != nil {
+		return fmt.Errorf("error listing events: %w", err)
+	}
+
+	return nil
+}
+
+// main is just a thin wrapper around run().
+func main() {
+	if err := run(os.Args[1:]); err != nil {
+		log.Fatal(err)
 	}
 }
