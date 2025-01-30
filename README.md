@@ -14,6 +14,12 @@ Listing events for 2025-01-30 (bob.smith@example.com) ...
  - Company Update January  (17:00 --> 18:00)
 $
 ```
+## Installation
+
+```
+$ go install github.com/perbu/calvin
+```
+
 
 ## Create OAuth Credentials
 
@@ -30,7 +36,7 @@ $
 6. Click Create.
 7. Download the JSON file by clicking Download JSON on the credentials row. This file contains your client ID, client
    secret, and other OAuth configuration details.
-8. Rename the file to `credentials.json` and place it in the root of the project directory.
+8. Rename the file to `credentials.json` and place it in the `~/.calvin` directory.
 9. Build the software. The credentials will be embedded into the binary.
 
 ## Create a config file
