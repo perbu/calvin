@@ -23,7 +23,7 @@ func run(args []string) error {
 	}
 
 	// Parse command-line arguments
-	parser := &dateparse.DefaultParser{}
+	parser := dateparse.New()
 	username, theDate, err := parser.Parse(args)
 	if err != nil {
 		return err

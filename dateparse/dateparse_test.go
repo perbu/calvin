@@ -6,13 +6,12 @@ import (
 )
 
 func TestParse(t *testing.T) {
-	parser := &DefaultParser{}
-
 	tests := []struct {
 		name      string
 		args      []string
 		wantUser  string
 		wantDate  time.Time
+		nowFunc   func(string) time.Time
 		expectErr bool
 	}{
 		{
@@ -50,15 +49,25 @@ func TestParse(t *testing.T) {
 			expectErr: false, // Even with invalid date, it defaults to today
 		},
 		{
-			name:      "Too many arguments",
-			args:      []string{"eve", "2025-01-01", "extra"},
-			wantUser:  "",
-			expectErr: true,
+			name:     "Username and next day of week",
+			args:     []string{"eve", "next", "monday"},
+			wantUser: "eve",
+			// use a custom now function to ensure the test is deterministic.
+			// always return 2025-01-31
+			nowFunc: func(string) time.Time {
+				return time.Date(2025, 1, 31, 0, 0, 0, 0, time.Local)
+			},
+			wantDate:  time.Date(2025, 2, 3, 0, 0, 0, 0, time.Local),
+			expectErr: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			parser := New()
+			if tt.nowFunc != nil {
+				parser.NowDate = tt.nowFunc
+			}
 			user, date, err := parser.Parse(tt.args)
 			if (err != nil) != tt.expectErr {
 				t.Errorf("Parse() error = %v, expectErr %v", err, tt.expectErr)
