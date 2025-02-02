@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"github.com/perbu/calvin/config"
 	"github.com/perbu/calvin/dateparse"
@@ -8,6 +9,9 @@ import (
 	"log"
 	"os"
 )
+
+//go:embed .version
+var embeddedVersion string
 
 func run(args []string) error {
 	// Initialize configuration loader
@@ -20,6 +24,14 @@ func run(args []string) error {
 	configData, err := loader.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("loader.LoadConfig: %w", err)
+	}
+
+	// check that we have at least one argument and that it is help:
+	if len(args) < 1 || args[0] == "help" {
+		fmt.Println("Calvin - Google Calendar CLI, version", embeddedVersion)
+		fmt.Println("Usage: calvin <username> <date>")
+		fmt.Println("Example: calvin john.doe next wednesday")
+		return nil
 	}
 
 	// Parse command-line arguments
