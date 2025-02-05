@@ -157,6 +157,7 @@ func randomString(n int) string {
 // ListAndPrintEvents handles the logic of listing and printing events.
 func ListAndPrintEvents(s CalendarService, calendarID string, theDate time.Time, defaultDomain string) error {
 	events, err := s.ListEvents(calendarID, theDate)
+
 	if err != nil {
 		return err
 	}
@@ -167,9 +168,10 @@ func ListAndPrintEvents(s CalendarService, calendarID string, theDate time.Time,
 	subtle := color.New(color.FgHiBlack).SprintFunc()
 	warnColor := color.New(color.FgRed, color.Bold).SprintFunc()
 
-	fmt.Printf("Listing events for %s (%s) ...\n",
+	fmt.Printf("Listing events for %s (%s) [tz: %s]...\n",
 		headerColor(theDate.Format("2006-01-02")),
 		headerColor(calendarID),
+		headerColor(events.TimeZone),
 	)
 
 	if len(events.Items) == 0 {
