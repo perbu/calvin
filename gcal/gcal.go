@@ -70,9 +70,23 @@ func NewGCalService(loader config.Loader) (*GCalService, error) {
 
 // ListEvents retrieves events for a specific calendar and date.
 func (g *GCalService) ListEvents(calendarID string, theDate time.Time) (*calendar.Events, error) {
-	startOfDay := time.Date(theDate.Year(), theDate.Month(), theDate.Day(), 0, 0, 0, 0, time.Local)
+	// Step 1: Retrieve calendar details to get the time zone.
+	cal, err := g.service.Calendars.Get(calendarID).Do()
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve calendar info: %w", err)
+	}
+
+	// Step 2: Load the calendar's time zone.
+	loc, err := time.LoadLocation(cal.TimeZone)
+	if err != nil {
+		return nil, fmt.Errorf("unable to load location from timezone %s: %w", cal.TimeZone, err)
+	}
+
+	// Step 3: Compute start and end of day based on the calendar's time zone.
+	startOfDay := time.Date(theDate.Year(), theDate.Month(), theDate.Day(), 0, 0, 0, 0, loc)
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
+	// Fetch events using the computed times.
 	events, err := g.service.Events.List(calendarID).
 		ShowDeleted(false).
 		SingleEvents(true).
