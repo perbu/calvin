@@ -10,6 +10,7 @@ import (
 // Config holds the application configuration.
 type Config struct {
 	DefaultDomain string `json:"default_domain"`
+	DefaultUser   string `json:"default_username"`
 	Credentials   []byte
 	Token         []byte
 }

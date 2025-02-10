@@ -4,89 +4,93 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/perbu/calvin/config"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/fatih/color"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/option"
 
-	"github.com/fatih/color"
+	"github.com/perbu/calvin/config"
 )
 
-// GCalService implements CalendarService interface.
+// GCalService interacts with the Google Calendar API.
 type GCalService struct {
 	service *calendar.Service
 	config  *config.Config
 	loader  config.Loader
 }
 
-// NewGCalService initializes and returns a GCalService.
+// NewGCalService creates and initializes a new GCalService.
 func NewGCalService(loader config.Loader) (*GCalService, error) {
 	cfg, err := loader.LoadConfig()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("loading config: %w", err)
 	}
 
 	credBytes, err := loader.LoadCredentials()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("loading credentials: %w", err)
 	}
 
-	tokenBytes, err := loader.LoadToken()
-	var tok *oauth2.Token
+	token, err := loadOrObtainToken(credBytes, loader)
 	if err != nil {
-		tok, err = getTokenFromWeb(credBytes, loader)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		if err := json.Unmarshal(tokenBytes, &tok); err != nil {
-			return nil, fmt.Errorf("json.Unmarshal token: %w", err)
-		}
+		return nil, fmt.Errorf("getting token: %w", err)
 	}
 
-	conf, err := google.ConfigFromJSON(credBytes, calendar.CalendarReadonlyScope)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse client secret file to config: %w", err)
-	}
+	client := oauthClient(credBytes, token)
 
-	client := conf.Client(context.Background(), tok)
 	srv, err := calendar.NewService(context.Background(), option.WithHTTPClient(client))
 	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve Calendar client: %w", err)
+		return nil, fmt.Errorf("creating calendar service: %w", err)
 	}
 
-	return &GCalService{
-		service: srv,
-		config:  cfg,
-		loader:  loader,
-	}, nil
+	return &GCalService{service: srv, config: cfg, loader: loader}, nil
 }
 
-// ListEvents retrieves events for a specific calendar and date.
+// loadOrObtainToken loads a token from storage or obtains a new one if necessary.
+func loadOrObtainToken(credBytes []byte, loader config.Loader) (*oauth2.Token, error) {
+	tokenBytes, err := loader.LoadToken()
+	if err == nil { // Token found in storage
+		var tok oauth2.Token
+		if err := json.Unmarshal(tokenBytes, &tok); err != nil {
+			return nil, fmt.Errorf("unmarshalling token: %w", err)
+		}
+		return &tok, nil
+	}
+
+	// No token found, initiate OAuth2 flow
+	return getTokenFromWeb(credBytes, loader)
+}
+
+// oauthClient creates an OAuth2 client.
+func oauthClient(credBytes []byte, token *oauth2.Token) *http.Client {
+	conf, err := google.ConfigFromJSON(credBytes, calendar.CalendarReadonlyScope)
+	if err != nil {
+		log.Fatalf("parsing credentials: %v", err) // Fatal error if credentials are invalid
+	}
+	return conf.Client(context.Background(), token)
+}
+
+// ListEvents retrieves events for a given calendar ID and date.
 func (g *GCalService) ListEvents(calendarID string, theDate time.Time) (*calendar.Events, error) {
-	// Step 1: Retrieve calendar details to get the time zone.
 	cal, err := g.service.Calendars.Get(calendarID).Do()
 	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve calendar info: %w", err)
+		return nil, fmt.Errorf("getting calendar info: %w", err)
 	}
 
-	// Step 2: Load the calendar's time zone.
 	loc, err := time.LoadLocation(cal.TimeZone)
 	if err != nil {
-		return nil, fmt.Errorf("unable to load location from timezone %s: %w", cal.TimeZone, err)
+		return nil, fmt.Errorf("loading location: %w", err)
 	}
 
-	// Step 3: Compute start and end of day based on the calendar's time zone.
 	startOfDay := time.Date(theDate.Year(), theDate.Month(), theDate.Day(), 0, 0, 0, 0, loc)
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
-	// Fetch events using the computed times.
 	events, err := g.service.Events.List(calendarID).
 		ShowDeleted(false).
 		SingleEvents(true).
@@ -95,92 +99,57 @@ func (g *GCalService) ListEvents(calendarID string, theDate time.Time) (*calenda
 		OrderBy("startTime").
 		Do()
 	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve events: %w", err)
+		return nil, fmt.Errorf("retrieving events: %w", err)
 	}
 	return events, nil
 }
 
-// getTokenFromWeb handles OAuth2 authentication flow.
-func getTokenFromWeb(credBytes []byte, loader config.Loader) (*oauth2.Token, error) {
-	conf, err := google.ConfigFromJSON(credBytes, calendar.CalendarReadonlyScope)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse client secret file to config: %w", err)
+// formatTimeInfo formats the time information for an event.
+func formatTimeInfo(item *calendar.Event, loc *time.Location) string {
+	if item.Start == nil {
+		return "" // Handle cases where Start is nil for robustness
 	}
 
-	state := randomString(16)
-	codeCh := make(chan string)
-	srv := &http.Server{Addr: ":8066"}
+	if item.Start.Date != "" {
+		return color.New(color.FgGreen).SprintFunc()("(all day)")
+	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("state") != state {
-			_, _ = fmt.Fprintln(w, "Invalid state")
-			return
+	if item.Start.DateTime != "" {
+		startTime, err1 := time.Parse(time.RFC3339, item.Start.DateTime)
+		endTime, err2 := time.Parse(time.RFC3339, item.End.DateTime)
+
+		if err1 != nil || err2 != nil {
+			return fmt.Sprintf("(%s --> %s)",
+				extractTimeFromISO(item.Start.DateTime),
+				extractTimeFromISO(item.End.DateTime),
+			) // Fallback if parsing fails
 		}
-		code := r.URL.Query().Get("code")
-		_, _ = fmt.Fprintln(w, "Received authentication code. You can close this page now.")
-		codeCh <- code
-	})
 
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("ListenAndServe error: %v", err)
+		highlight := color.New(color.FgGreen).SprintFunc()
+		var formatted string
+		if loc == nil {
+			formatted = fmt.Sprintf(" [%s --> %s]", highlight(startTime.Format("15:04")), highlight(endTime.Format("15:04")))
+		} else {
+			formatted = fmt.Sprintf(" [%s --> %s]", highlight(startTime.In(loc).Format("15:04")), highlight(endTime.In(loc).Format("15:04")))
 		}
-	}()
 
-	authURL := conf.AuthCodeURL(state,
-		oauth2.AccessTypeOffline,
-		oauth2.SetAuthURLParam("redirect_uri", "http://localhost:8066/"),
-	)
-	fmt.Printf("Go to the following link in your browser:\n%v\n", authURL)
-
-	authCode := <-codeCh
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Printf("HTTP server Shutdown: %v", err)
+		return formatted
 	}
 
-	tok, err := conf.Exchange(context.Background(), authCode,
-		oauth2.SetAuthURLParam("redirect_uri", "http://localhost:8066/"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve token from web: %w", err)
-	}
-
-	tokenBytes, err := json.Marshal(tok)
-	if err != nil {
-		return nil, fmt.Errorf("json.Marshal token: %w", err)
-	}
-	if err := loader.SaveToken(tokenBytes); err != nil {
-		return nil, fmt.Errorf("unable to save token: %w", err)
-	}
-	return tok, nil
+	return "" // Default return if no time information is available
 }
 
-// randomString generates a random string of the given length.
-func randomString(n int) string {
-	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letters[time.Now().UnixNano()%int64(len(letters))] // Simplistic for example
-	}
-	return string(b)
-}
-
-// ListAndPrintEvents handles the logic of listing and printing events.
-func ListAndPrintEvents(s CalendarService, calendarID string, theDate time.Time, defaultDomain string) error {
+// ListAndPrintEvents lists and prints events for a given calendar and date.
+func ListAndPrintEvents(s CalendarService, calendarID string, theDate time.Time, defaultDomain string, loc *time.Location) error {
 	events, err := s.ListEvents(calendarID, theDate)
-
 	if err != nil {
 		return err
 	}
 
-	// Set up color helpers
 	headerColor := color.New(color.FgCyan, color.Bold).SprintFunc()
-	highlight := color.New(color.FgGreen).SprintFunc()
-	subtle := color.New(color.FgHiBlack).SprintFunc()
 	warnColor := color.New(color.FgRed, color.Bold).SprintFunc()
+	subtle := color.New(color.FgHiBlack).SprintFunc()
+	summaryColor := color.New(color.FgYellow, color.Bold).SprintFunc()
 
 	fmt.Printf("Listing events for %s (%s) [tz: %s]...\n",
 		headerColor(theDate.Format("2006-01-02")),
@@ -194,22 +163,9 @@ func ListAndPrintEvents(s CalendarService, calendarID string, theDate time.Time,
 	}
 
 	for _, item := range events.Items {
-		var timeInfo string
-		switch {
-		case item.Start != nil && item.Start.Date != "":
-			timeInfo = highlight("(all day)")
-		case item.Start != nil && item.Start.DateTime != "":
-			timeInfo = fmt.Sprintf("(%s --> %s)",
-				highlight(extractTimeFromISO(item.Start.DateTime)),
-				highlight(extractTimeFromISO(item.End.DateTime)),
-			)
-		}
-
-		summaryColor := color.New(color.FgYellow, color.Bold).SprintFunc()
-
 		fmt.Printf(" - %s %s %s\n",
 			summaryColor(item.Summary),
-			timeInfo,
+			formatTimeInfo(item, loc), // Call the helper function
 			subtle("["+compactAttendees(item.Attendees, calendarID, defaultDomain)+"]"),
 		)
 	}

@@ -11,7 +11,7 @@ func TestParse(t *testing.T) {
 		args      []string
 		wantUser  string
 		wantDate  time.Time
-		nowFunc   func(string) time.Time
+		nowFunc   func() time.Time
 		expectErr bool
 	}{
 		{
@@ -54,7 +54,7 @@ func TestParse(t *testing.T) {
 			wantUser: "eve",
 			// use a custom now function to ensure the test is deterministic.
 			// always return 2025-01-31
-			nowFunc: func(string) time.Time {
+			nowFunc: func() time.Time {
 				return time.Date(2025, 1, 31, 0, 0, 0, 0, time.Local)
 			},
 			wantDate:  time.Date(2025, 2, 3, 0, 0, 0, 0, time.Local),

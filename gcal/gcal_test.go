@@ -43,7 +43,7 @@ func TestListAndPrintEvents(t *testing.T) {
 		Err:    nil,
 	}
 
-	err := ListAndPrintEvents(mockService, "alice@example.com", time.Date(2025, 1, 31, 0, 0, 0, 0, time.Local), "example.com")
+	err := ListAndPrintEvents(mockService, "alice@example.com", time.Date(2025, 1, 31, 0, 0, 0, 0, time.Local), "example.com", nil)
 	if err != nil {
 		t.Errorf("ListAndPrintEvents returned error: %v", err)
 	}

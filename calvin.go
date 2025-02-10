@@ -2,12 +2,14 @@ package main
 
 import (
 	_ "embed"
+	"flag"
 	"fmt"
 	"github.com/perbu/calvin/config"
 	"github.com/perbu/calvin/dateparse"
 	"github.com/perbu/calvin/gcal"
 	"log"
 	"os"
+	"time"
 )
 
 //go:embed .version
@@ -15,6 +17,12 @@ var embeddedVersion string
 
 func run(args []string) error {
 	// Initialize configuration loader
+
+	var useLocalTimezone bool
+
+	flag.BoolVar(&useLocalTimezone, "local", false, "Use local timezone")
+	flag.Parse()
+
 	loader, err := config.NewFileLoader()
 	if err != nil {
 		return fmt.Errorf("config.NewFileLoader: %w", err)
@@ -27,16 +35,25 @@ func run(args []string) error {
 	}
 
 	// check that we have at least one argument and that it is help:
-	if len(args) < 1 || args[0] == "help" {
+	if flag.NArg() == 1 && flag.Arg(0) == "help" {
 		fmt.Println("Calvin - Google Calendar CLI, version", embeddedVersion)
 		fmt.Println("Usage: calvin <username> <date>")
-		fmt.Println("Example: calvin john.doe next wednesday")
+		fmt.Println("Example: calvin --local john.doe next wednesday")
 		return nil
 	}
-
-	// Parse command-line arguments
+	// if the there is one or more arguments, the first one is the username, if not, we fall back to the default username:
+	var username string
+	if flag.NArg() < 1 {
+		if configData.DefaultUser == "" {
+			return fmt.Errorf("no username specified and no default user in config")
+		}
+		username = configData.DefaultUser
+	} else {
+		username = flag.Arg(0)
+	}
+	// Parse username and date arguments
 	parser := dateparse.New()
-	username, theDate, err := parser.Parse(args)
+	theDate, err := parser.Parse(flag.Args())
 	if err != nil {
 		return err
 	}
@@ -50,8 +67,16 @@ func run(args []string) error {
 		return fmt.Errorf("gcal.NewGCalService: %w", err)
 	}
 
+	// find time.location:
+	var loc *time.Location
+
+	if useLocalTimezone {
+		loc = time.Local
+		fmt.Println("Using local timezone:", loc)
+	}
+
 	// List and print events
-	if err := gcal.ListAndPrintEvents(gcalService, fullCalendarID, theDate, configData.DefaultDomain); err != nil {
+	if err := gcal.ListAndPrintEvents(gcalService, fullCalendarID, theDate, configData.DefaultDomain, loc); err != nil {
 		return fmt.Errorf("gcal.ListAndPrintEvents: %w", err)
 	}
 
