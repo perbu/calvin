@@ -30,15 +30,19 @@ func New() *DefaultParser {
 // Parse parses command-line arguments to extract username and date.
 func (p *DefaultParser) Parse(args []string) (time.Time, error) {
 	theDate := p.NowDate().Truncate(24 * time.Hour)
-	if len(args) == 0 {
+	if len(args) <= 1 {
 		return theDate, nil
 	}
 
 	switch args[1] {
 	case "":
 		// keep today's date
+	case "today":
+		// keep today's date
 	case "tomorrow":
 		theDate = theDate.Add(24 * time.Hour)
+	case "yesterday":
+		theDate = theDate.Add(-24 * time.Hour)
 	case "next": // next monday, next tuesday, etc.
 		if len(args) < 3 {
 			return time.Time{}, errors.New("missing day of week")
