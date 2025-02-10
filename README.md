@@ -18,7 +18,7 @@ The basic syntax for using Calvin is:
 calvin [flags] <username> [date]
 ```
 
-- `<username>`: The username or email address of the calendar to view. If only a username is provided, Calvin will append the `default_domain` from your configuration.
+- `<username>`: The username or email address of the calendar to view. If only a username is provided, Calvin will append the `default_domain` from your configuration. You can provide a default username that will be used if you omit the username.
 - `<date>` (optional): The date for which to retrieve events. Acceptable formats include:
   - **(Omitted):** Show events for today.
   - **`tomorrow`:** Show events for tomorrow.
