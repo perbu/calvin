@@ -163,10 +163,11 @@ func ListAndPrintEvents(s CalendarService, calendarID string, theDate time.Time,
 	}
 
 	for _, item := range events.Items {
-		fmt.Printf(" - %s %s %s\n",
+		fmt.Printf(" - %s %s %s %s\n",
 			summaryColor(item.Summary),
 			formatTimeInfo(item, loc), // Call the helper function
 			subtle("["+compactAttendees(item.Attendees, calendarID, defaultDomain)+"]"),
+			extractURLs(item), // Call the helper function
 		)
 	}
 	return nil
@@ -198,4 +199,14 @@ func compactAttendees(attendees []*calendar.EventAttendee, self, homeDomain stri
 		}
 	}
 	return strings.Join(who, ", ")
+}
+
+func extractURLs(item *calendar.Event) string {
+	if item.HangoutLink != "" {
+		return item.HangoutLink
+	}
+	if item.Location != "" {
+		return item.Location
+	}
+	return ""
 }
