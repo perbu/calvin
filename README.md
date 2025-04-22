@@ -23,6 +23,8 @@ calvin [flags] <username> [date]
   - **(Omitted):** Show events for today.
   - **`tomorrow`:** Show events for tomorrow.
   - **`next <weekday>`:** Show events for the next occurrence of the specified weekday (e.g., `next monday`).
+  - **`week`:** Show events for the current week (Monday through Sunday).
+  - **`next week`:** Show events for the next week (next Monday through Sunday).
   - **`YYYY-MM-DD`:** Show events for a specific date in ISO 8601 format (e.g., `2025-12-25`).
 
 ### Flags
@@ -80,6 +82,34 @@ Listing events for 2025-01-30 (bob.smith@example.com) [tz: Europe/Oslo]...
 - Company Update January [17:00 --> 18:00]  []
 ```
 
+### 6. Check events for the current week for `alice.smith`:
+
+```bash
+calvin alice.smith week
+```
+
+*Expected output:*
+
+```
+Listing events for the week of 2025-01-27 to 2025-02-02
+--------------------------------------------------
+Listing events for 2025-01-27 (alice.smith@example.com) [tz: Europe/Oslo]...
+- Weekly Planning      [09:00 --> 10:00]  [team, ...]
+- Project Review       [14:00 --> 15:00]  [manager]
+--------------------------------------------------
+Listing events for 2025-01-28 (alice.smith@example.com) [tz: Europe/Oslo]...
+- Team Standup         [09:30 --> 10:00]  [team, ...]
+- Client Meeting       [13:00 --> 14:00]  [client, ...]
+--------------------------------------------------
+...
+```
+
+### 7. Check events for next week for `dave.jones`:
+
+```bash
+calvin dave.jones next week
+```
+
 ## Installation
 
 ### Prerequisites
@@ -124,11 +154,11 @@ Calvin uses Google's OAuth 2.0 for secure access. Follow these steps to create t
    - Click **DOWNLOAD JSON** to save your credentials as `credentials.json`.
 4. **Place the `credentials.json` file:**  
    - Create a directory named `.calvin` in your home directory:
-     
+
      ```bash
      mkdir ~/.calvin
      ```
-     
+
    - Move the downloaded `credentials.json` file into the `~/.calvin` directory.
 
 ### 2. Create a Config File

@@ -18,6 +18,10 @@ import (
 	"github.com/perbu/calvin/config"
 )
 
+const (
+	separatorCount = 8
+)
+
 // GCalService interacts with the Google Calendar API.
 type GCalService struct {
 	service *calendar.Service
@@ -170,6 +174,66 @@ func ListAndPrintEvents(s CalendarService, calendarID string, theDate time.Time,
 			extractURLs(item), // Call the helper function
 		)
 	}
+	return nil
+}
+
+// ListAndPrintEventsForWeekDay lists and prints events for a given calendar and date with a simplified header for week view.
+func ListAndPrintEventsForWeekDay(s CalendarService, calendarID string, theDate time.Time, defaultDomain string, loc *time.Location) error {
+	events, err := s.ListEvents(calendarID, theDate)
+	if err != nil {
+		return err
+	}
+
+	headerColor := color.New(color.FgCyan, color.Bold).SprintFunc()
+	warnColor := color.New(color.FgRed, color.Bold).SprintFunc()
+	subtle := color.New(color.FgHiBlack).SprintFunc()
+	summaryColor := color.New(color.FgYellow, color.Bold).SprintFunc()
+
+	// Simplified header for week view - only show the date
+	fmt.Printf("%s:\n", headerColor(theDate.Format("=== Monday (Jan 2) ===")))
+
+	if len(events.Items) == 0 {
+		fmt.Println(warnColor("No events found."))
+		return nil
+	}
+
+	for _, item := range events.Items {
+		fmt.Printf(" - %s %s %s %s\n",
+			summaryColor(item.Summary),
+			formatTimeInfo(item, loc),
+			subtle("["+compactAttendees(item.Attendees, calendarID, defaultDomain)+"]"),
+			extractURLs(item),
+		)
+	}
+	return nil
+}
+
+// ListAndPrintEventsForWeek lists and prints events for a given calendar for each day in a week.
+func ListAndPrintEventsForWeek(s CalendarService, calendarID string, weekDays []time.Time, defaultDomain string, loc *time.Location) error {
+	// Get the first day's events to extract timezone information
+	firstDayEvents, err := s.ListEvents(calendarID, weekDays[0])
+	if err != nil {
+		return err
+	}
+
+	headerColor := color.New(color.FgCyan, color.Bold).SprintFunc()
+
+	fmt.Printf("Listing events for the week of %s to %s (%s) [tz: %s]\n",
+		headerColor(weekDays[0].Format("2006-01-02")),
+		headerColor(weekDays[6].Format("2006-01-02")),
+		headerColor(calendarID),
+		headerColor(firstDayEvents.TimeZone))
+
+	// fmt.Println(strings.Repeat("-", separatorCount))
+
+	for _, day := range weekDays {
+		err := ListAndPrintEventsForWeekDay(s, calendarID, day, defaultDomain, loc)
+		if err != nil {
+			return err
+		}
+		// fmt.Println(strings.Repeat("-", separatorCount))
+	}
+
 	return nil
 }
 

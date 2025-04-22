@@ -39,6 +39,7 @@ func run(args []string) error {
 		fmt.Println("Calvin - Google Calendar CLI, version", embeddedVersion)
 		fmt.Println("Usage: calvin <username> <date>")
 		fmt.Println("Example: calvin --local john.doe next wednesday")
+		fmt.Println("         calvin john.doe [next] week")
 		return nil
 	}
 	// if the there is one or more arguments, the first one is the username, if not, we fall back to the default username:
@@ -53,7 +54,7 @@ func run(args []string) error {
 	}
 	// Parse username and date arguments
 	parser := dateparse.New()
-	theDate, err := parser.Parse(flag.Args())
+	parseResult, err := parser.Parse(flag.Args())
 	if err != nil {
 		return err
 	}
@@ -76,8 +77,16 @@ func run(args []string) error {
 	}
 
 	// List and print events
-	if err := gcal.ListAndPrintEvents(gcalService, fullCalendarID, theDate, configData.DefaultDomain, loc); err != nil {
-		return fmt.Errorf("gcal.ListAndPrintEvents: %w", err)
+	if parseResult.IsWeek {
+		// If it's a week request, list events for the entire week
+		if err := gcal.ListAndPrintEventsForWeek(gcalService, fullCalendarID, parseResult.WeekDays, configData.DefaultDomain, loc); err != nil {
+			return fmt.Errorf("gcal.ListAndPrintEventsForWeek: %w", err)
+		}
+	} else {
+		// Otherwise, list events for a single day
+		if err := gcal.ListAndPrintEvents(gcalService, fullCalendarID, parseResult.Date, configData.DefaultDomain, loc); err != nil {
+			return fmt.Errorf("gcal.ListAndPrintEvents: %w", err)
+		}
 	}
 
 	return nil
